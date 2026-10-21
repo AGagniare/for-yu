@@ -43,7 +43,7 @@ nav button {
 nav button[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .screenWrap {
-  flex: 1; min-height: 0; position: relative; border: 1px solid var(--line); border-radius: 4px;
+  flex: 1 0 auto; min-height: clamp(320px, 70vh, 760px); position: relative; border: 1px solid var(--line); border-radius: 4px;
   background: radial-gradient(ellipse at center, #22151c 0%, var(--bg) 75%);
   overflow: hidden; touch-action: none; cursor: pointer;
 }
