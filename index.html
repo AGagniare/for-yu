@@ -35,7 +35,8 @@ body {
 }
 header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 h1 { font-family: var(--font-display); font-weight: 400; font-size: 1.8rem; margin: 0; color: var(--accent); text-shadow: 0 0 10px var(--glow); }
-nav { display: flex; gap: 6px; }
+nav { display: flex; gap: 6px; flex-wrap: wrap; }
+nav button { white-space: nowrap; }
 nav button {
   font: inherit; font-size: .8rem; color: var(--accent); background: var(--panel);
   border: 1px solid var(--line); padding: 6px 14px; cursor: pointer; border-radius: 3px;
@@ -43,7 +44,7 @@ nav button {
 nav button[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .screenWrap {
-  flex: 1 0 auto; min-height: clamp(320px, 70vh, 760px); position: relative; border: 1px solid var(--line); border-radius: 4px;
+  flex: 1 0 auto; min-height: clamp(300px, 60vh, 760px); position: relative; border: 1px solid var(--line); border-radius: 4px;
   background: radial-gradient(ellipse at center, #22151c 0%, var(--bg) 75%);
   overflow: hidden; touch-action: none; cursor: pointer;
 }
@@ -55,6 +56,9 @@ nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
 }
 #artScreen { font-family: var(--font-braille); display: flex; align-items: center; justify-content: center; padding: 0; }
 #artScreen span { display: block; }
+#sealCv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#vapeCv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#smokeCv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #moonCv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #fw { position: absolute; inset: 0; width: 100%; height: 100%; display: block; filter: drop-shadow(0 0 5px rgba(255, 143, 200, .45)); }
 .screenWrap::after {
@@ -70,8 +74,14 @@ nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
     <button data-view="fireworks" aria-pressed="false">Fireworks</button>
     <button data-view="bunny" aria-pressed="false">Bunny</button>
     <button data-view="her" aria-pressed="false">Her</button>
+    <button data-view="smoke" aria-pressed="false">Smoke</button>
+    <button data-view="vape" aria-pressed="false">Vape</button>
+    <button data-view="botan" aria-pressed="false">Botan</button>
   </nav>
 </header>
+<div class="screenWrap" id="sealWrap" hidden><canvas id="sealCv" aria-label="A seal relaxing in a hot spring with a towel on his head and a wooden bucket"></canvas></div>
+<div class="screenWrap" id="vapeWrap" hidden><canvas id="vapeCv" aria-label="A pink vape rotating in 3D that lights up and puffs vapor when tapped"></canvas></div>
+<div class="screenWrap" id="smokeWrap" hidden><canvas id="smokeCv" aria-label="A cigarette whose smoke curls into hearts"></canvas></div>
 <div class="screenWrap" id="moonWrap"><canvas id="moonCv" aria-label="A moon and a star collide and become a drawing"></canvas></div>
 <div class="screenWrap" id="fwWrap" hidden><canvas id="fw" aria-label="ASCII fireworks over a city skyline"></canvas></div>
 <div class="screenWrap" id="bunnyWrap" hidden><pre class="screen" id="screen" aria-label="An animated ASCII bunny"></pre></div>
@@ -730,17 +740,687 @@ nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
 
   moonWrap.addEventListener("pointerdown", () => { mT0 = performance.now(); });
 
+  // ================= Smoke =================
+  const smokeWrap = document.getElementById("smokeWrap");
+  const smokeCanvas = document.getElementById("smokeCv");
+  const sctx = smokeCanvas.getContext("2d");
+  let sSp = 4, sOx = 0, sOy = 0, SW = 200, SH = 150, sLast = null;
+  const cig = { lit: false, litAt: 0, burn: 0, ash: 0, puff: 0, outAt: -99, nextHeart: 0, spawnAcc: 0 };
+  let smoke = [], sHearts = [], sSparks = [], ashBits = [];
+  let cigPts = null;
+
+  function measureSmoke() {
+    if (smokeWrap.hidden) return;
+    const r = smokeWrap.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    smokeCanvas.width = Math.max(1, Math.round(r.width * dpr)); smokeCanvas.height = Math.max(1, Math.round(r.height * dpr));
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sSp = r.width < 500 ? 3 : 4;
+    const W = Math.floor(r.width / sSp), H = Math.floor(r.height / sSp);
+    sOx = (r.width - W * sSp) / 2 + sSp / 2; sOy = (r.height - H * sSp) / 2 + sSp / 2;
+    if (W !== SW || H !== SH || !cigPts) { SW = W; SH = H; buildCig(); }
+  }
+
+  // the cigarette, as dots in its own (u along, v across) coordinates
+  function buildCig() {
+    const L = Math.min(SW * 0.6, 150), T = Math.max(5, Math.round(L * 0.075));
+    const rnd = mulberry(11);
+    const pts = [];
+    for (let u = 0; u < L; u += 0.5) for (let v = -T / 2; v <= T / 2; v += 0.5) {
+      const shade = 0.72 + 0.28 * Math.cos((v / (T / 2 + 0.5)) * Math.PI / 2);
+      let c;
+      if (u < L * 0.28) {
+        const s = rnd() < 0.18 ? 0.8 : 1;
+        c = [255 * s, 150 * s, 196 * s];                   // pink filter
+        if (u > L * 0.28 - 2) c = [255, 222, 238];          // pale pink band
+      } else c = [246, 243, 247];                           // white paper
+      pts.push({ u, v, c: c.map(x => x * shade), spk: rnd() });
+    }
+    cigPts = { L, T, pts, x0: (SW - L) / 2, y0: SH * 0.8, tilt: -0.1 };
+  }
+
+  function cigXY(u, v) {
+    const { x0, y0, tilt, L } = cigPts, ca = Math.cos(tilt), sa = Math.sin(tilt);
+    const du = u - L / 2;
+    return [SW / 2 + du * ca - v * sa, y0 + du * sa + v * ca];
+  }
+
+  function sdot(x, y, a, r, g, b) {
+    if (a <= 0.02) return;
+    const q = (Math.min(15, Math.max(0, Math.round(r * a / 17))) << 8) | (Math.min(15, Math.max(0, Math.round(g * a / 17))) << 4) | Math.min(15, Math.max(0, Math.round(b * a / 17)));
+    sctx.fillStyle = QCOL[q];
+    sctx.fillRect(sOx + Math.round(x) * sSp - 1.3, sOy + Math.round(y) * sSp - 1.3, 2.6, 2.6);
+  }
+
+  function emberUV() { const { L } = cigPts; return L - cig.burn; } // where paper meets the burning end
+
+  function spawnHeart(t) {
+    const [ex, ey] = cigXY(emberUV() + cig.ash, -cigPts.T / 2);
+    const s = Math.max(1.2, Math.min(SW, SH) * 0.016);
+    const hw = 18 * s * 1.1 + 4, cx = Math.max(hw, Math.min(SW - hw, ex - SW * 0.05)), cy = Math.max(10 * s, ey - SH * 0.47);
+    sHearts.push({ born: t, cx, cy, s, parts: [], acc: 0, side: 0 });
+  }
+  const heartActive = t => sHearts.some(h => t - h.born < 6);
+
+  // one continuous path: up from the ember as a wavy stem, then around one half of the heart
+  function heartPath(h, ex, ey, age, side) {
+    const s = h.s, beat = age > 2.4 ? 1 + 0.04 * Math.sin(age * 6) : 1;
+    const bx = h.cx, by = h.cy + 17 * s * beat;
+    const pts = [];
+    for (let i = 0; i <= 40; i++) {
+      const f = i / 40, cx = ex, cy = (ey + by) / 2;
+      let x = (1 - f) ** 2 * ex + 2 * (1 - f) * f * cx + f * f * bx;
+      const y = (1 - f) ** 2 * ey + 2 * (1 - f) * f * cy + f * f * by;
+      x += Math.sin(f * Math.PI * 2.2 + age * 1.2) * SW * 0.025 * Math.sin(f * Math.PI);
+      pts.push([x, y]);
+    }
+    for (let i = 1; i <= 60; i++) {
+      const th = Math.PI + (side ? 1 : -1) * Math.PI * (i / 60);
+      const hx = 16 * Math.sin(th) ** 3, hy = -(13 * Math.cos(th) - 5 * Math.cos(2 * th) - 2 * Math.cos(3 * th) - Math.cos(4 * th));
+      pts.push([h.cx + hx * s * 1.1 * beat, h.cy + hy * s * beat]);
+    }
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    return { pts, cum, total: cum[cum.length - 1], stemEnd: cum[40] / cum[cum.length - 1] };
+  }
+  function along(path, d) {
+    const { pts, cum } = path;
+    let lo = 0, hi = cum.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (cum[m] <= d) lo = m; else hi = m; }
+    const seg = cum[hi] - cum[lo] || 1, k = Math.max(0, Math.min(1, (d - cum[lo]) / seg));
+    const ax = pts[lo][0], ay = pts[lo][1], bx = pts[hi][0], by = pts[hi][1];
+    const tx = (bx - ax) / seg, ty = (by - ay) / seg;
+    return [ax + (bx - ax) * k, ay + (by - ay) * k, -ty, tx, tx, ty];
+  }
+
+  function smokeScene(t) {
+    if (!cigPts) measureSmoke();
+    const dt = sLast === null ? 0.016 : Math.min(0.05, Math.max(0, t - sLast)); sLast = t;
+    const r = smokeWrap.getBoundingClientRect();
+    const g = sctx.createRadialGradient(r.width / 2, r.height * 0.75, 10, r.width / 2, r.height * 0.6, r.width * 0.8);
+    g.addColorStop(0, "#160e13"); g.addColorStop(1, "#07050a");
+    sctx.fillStyle = g; sctx.fillRect(0, 0, r.width, r.height);
+    const { L, T, pts } = cigPts;
+
+    // burning down, ash growing and falling, going out at the filter
+    if (cig.lit) {
+      cig.burn += dt * (L * 0.6 / 45) * (1 + cig.puff * 2);
+      cig.ash += dt * 0.5;
+      if (cig.ash > Math.min(L * 0.1, 10) && Math.random() < 0.01) {
+        for (let i = 0; i < 25; i++) { const [x, y] = cigXY(emberUV() + Math.random() * cig.ash, (Math.random() - 0.5) * T); ashBits.push({ x, y, vx: (Math.random() - 0.5) * 6, vy: 0, life: 0 }); }
+        cig.ash = 0;
+      }
+      if (cig.burn >= L * 0.66) { cig.lit = false; cig.outAt = t; }
+      if (t > cig.nextHeart && !heartActive(t)) { spawnHeart(t); cig.nextHeart = t + 7.5; }
+    } else if (cig.burn > 0 && t - cig.outAt > 5) { cig.burn = 0; cig.ash = 0; }
+    cig.puff = Math.max(0, cig.puff - dt * 0.9);
+
+    // soft shadow under the cigarette
+    for (let i = 0; i < 160; i++) {
+      const u = (i / 160) * (L - cig.burn), [x, y] = cigXY(u, T * 1.6);
+      if ((i * 7) % 3 === 0) sdot(x, y + 2 + (i % 2), 0.18, 120, 90, 110);
+    }
+
+    // body
+    const end = emberUV();
+    for (const p of pts) {
+      if (p.u > end) continue;
+      const [x, y] = cigXY(p.u, p.v);
+      let c = p.c;
+      if (cig.lit || cig.burn > 0) {
+        const d = end - p.u;                     // char line just behind the ember
+        if (d < 2.5) c = [90, 70, 60];
+        else if (d < 5) c = c.map(v => v * (0.6 + 0.08 * d));
+      }
+      sdot(x, y, 1, c[0], c[1], c[2]);
+    }
+    // the end: tobacco when unlit, ember + ash when lit
+    const fl = 0.75 + 0.25 * Math.sin(t * 13) * Math.sin(t * 5.3 + 1) + cig.puff * 0.8;
+    if (!cig.lit) {
+      for (let v = -T / 2; v <= T / 2; v++) for (let k = 0; k < 2; k++) {
+        const [x, y] = cigXY(end - k, v);
+        const smoulder = cig.burn > 0 ? Math.max(0, 1 - (t - cig.outAt) / 2) : 0;
+        sdot(x, y, 1, 150 + 100 * smoulder, 100 - 30 * smoulder, 58 - 30 * smoulder);
+      }
+    } else {
+      for (let u = 0; u < cig.ash; u++) for (let v = -T / 2; v <= T / 2; v++) {
+        const [x, y] = cigXY(end + 1 + u, v);
+        const s = 0.75 + 0.25 * ((u * 13 + v * 7) % 5) / 5;
+        sdot(x, y, 1, 160 * s, 150 * s, 156 * s);
+      }
+      for (let u = -1; u <= 1; u++) for (let v = -T / 2; v <= T / 2; v++) {
+        const [x, y] = cigXY(end + u, v);
+        const hot = Math.min(1.4, fl * (Math.random() * 0.4 + 0.8));
+        sdot(x, y, Math.min(1, hot), 255, 90 + 120 * Math.max(0, hot - 0.8), 40 + 60 * Math.max(0, hot - 1));
+      }
+      // glow
+      const [gx, gy] = cigXY(end, 0), R = T * (1.6 + cig.puff * 1.5);
+      for (let i = 0; i < 90; i++) {
+        const a = Math.random() * 6.28, d = Math.sqrt(Math.random()) * R;
+        sdot(gx + Math.cos(a) * d, gy + Math.sin(a) * d, (1 - d / R) * 0.55 * fl, 255, 120, 60);
+      }
+    }
+    // lighter flame for a moment after lighting
+    if (cig.lit && t - cig.litAt < 1.1) {
+      const [fx, fy] = cigXY(end + 4, 0), k = 1 - (t - cig.litAt) / 1.1;
+      for (let i = 0; i < 220; i++) {
+        const yy = Math.random(), w = Math.sin(yy * Math.PI) * 4 * (0.7 + 0.3 * Math.sin(t * 20 + yy * 6)) * k;
+        const x = fx + (Math.random() - 0.5) * 2 * w + Math.sin(t * 9 + yy * 5) * 1.5, y = fy + 6 - yy * 16 * k;
+        sdot(x, y, 0.9 * k, 255, 170 + 85 * (1 - yy), 60 + 160 * (1 - yy) * (yy < 0.25 ? 1 : 0));
+      }
+    }
+
+    // free smoke from the ember
+    if (cig.lit) {
+      cig.spawnAcc += dt * (110 + cig.puff * 200) * (heartActive(t) ? 0.2 : 1);
+      while (cig.spawnAcc >= 1) {
+        cig.spawnAcc--;
+        const [x, y] = cigXY(end + cig.ash * 0.5, -T / 2);
+        smoke.push({ x: x + (Math.random() - 0.5) * 2, y, vx: (Math.random() - 0.5) * 3, vy: -10 - Math.random() * 8, life: 0, max: 3 + Math.random() * 2.5, pink: false });
+      }
+    }
+    const flow = (x, y) => Math.sin(y * 0.09 + t * 1.3) * 7 + Math.sin(x * 0.05 - t * 0.9) * 4 + Math.sin((x + y) * 0.03 + t * 0.5) * 3;
+    smoke = smoke.filter(p => (p.life += dt) < p.max && p.y > -5);
+    for (const p of smoke) {
+      p.vx += (flow(p.x, p.y) * (0.6 + p.life * 0.4) - p.vx) * dt * 0.9 + (Math.random() - 0.5) * 40 * dt * p.life;
+      p.vy *= 1 - dt * 0.15;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const a = (1 - p.life / p.max) * Math.min(1, p.life * 3) * 0.85;
+      if (Math.random() < a + 0.15) sdot(p.x, p.y, Math.min(1, a * 1.25 + 0.15), p.pink ? 250 : 225, p.pink ? 185 : 220, p.pink ? 225 : 236);
+    }
+
+    // hearts drawn by the smoke stream itself
+    const [hex, hey] = cigXY(end + cig.ash * 0.5, -T / 2);
+    for (const h of sHearts) {
+      const age = t - h.born;
+      const paths = [heartPath(h, hex, hey, age, 0), heartPath(h, hex, hey, age, 1)];
+      if (age < 4 && cig.lit) {
+        h.acc += dt * 300;
+        while (h.acc >= 1) {
+          h.acc--; h.side ^= 1;
+          const g = (Math.random() + Math.random() + Math.random() - 1.5) * 1.4;
+          h.parts.push({ side: h.side, d: 0, off: g, ph: Math.random() * 6.28, sp: 0.88 + Math.random() * 0.24, life: 0, arrived: -1 });
+        }
+      }
+      const release = age > 6.2;
+      for (const q of h.parts) {
+        const P = paths[q.side];
+        q.life += dt;
+        q.d = Math.min(P.total, q.d + dt * q.sp * P.total / 2.4);
+        if (q.d >= P.total && q.arrived < 0) q.arrived = q.life;
+        const fd = q.d / P.total;
+        const [px, py, nx, ny, tx, ty] = along(P, q.d);
+        const spread = 0.6 + 1.4 * Math.min(1, fd * 1.4);
+        const x = px + nx * (q.off * spread + Math.sin(t * 3 + q.ph) * 0.4), y = py + ny * (q.off * spread + Math.sin(t * 3 + q.ph) * 0.4);
+        if (release) { // the heart lets go and drifts apart as ordinary smoke
+          smoke.push({ x, y, vx: tx * 4 + (Math.random() - 0.5) * 4, vy: ty * 4 - 4 - Math.random() * 4, life: 0, max: 1.8 + Math.random() * 1.6, pink: fd > P.stemEnd });
+          continue;
+        }
+        let a = Math.min(1, q.life * 3) * 0.9;
+        if (q.arrived >= 0) a *= Math.max(0, 1 - (q.life - q.arrived) / 0.3);
+        const m = Math.max(0, Math.min(1, (fd - P.stemEnd + 0.12) / 0.17));
+        if (Math.random() < a + 0.12) sdot(x, y, Math.min(1, a * 1.2 + 0.15), 225 + 25 * m, 220 - 45 * m, 236 - 16 * m);
+      }
+      if (release) h.parts = [];
+      else h.parts = h.parts.filter(q => q.arrived < 0 || q.life - q.arrived < 0.3);
+    }
+    sHearts = sHearts.filter(h => t - h.born <= 6.2);
+
+    // sSparks and falling ash
+    sSparks = sSparks.filter(s => (s.life += dt) < s.max);
+    for (const s of sSparks) { s.vy += 30 * dt; s.x += s.vx * dt; s.y += s.vy * dt; sdot(s.x, s.y, 1 - s.life / s.max, 255, 200, 90); }
+    ashBits = ashBits.filter(b => (b.life += dt) < 1.6);
+    for (const b of ashBits) { b.vy += 40 * dt; b.x += b.vx * dt; b.y += b.vy * dt; sdot(b.x, b.y, 1 - b.life / 1.6, 150, 146, 142); }
+
+    // unlit: the tip glows faintly now and then, inviting a click
+    if (!cig.lit && cig.burn === 0) {
+      const pulse = Math.max(0, Math.sin(t * 2)) ** 6;
+      if (pulse > 0.05) {
+        const [gx, gy] = cigXY(end, 0);
+        for (let i = 0; i < 18; i++) { const a = Math.random() * 6.28, d = Math.random() * T; sdot(gx + Math.cos(a) * d, gy + Math.sin(a) * d, pulse * 0.35, 255, 140, 80); }
+      }
+    }
+  }
+
+  smokeWrap.addEventListener("pointerdown", () => {
+    const t = (performance.now() - t0) / 1000;
+    if (!cigPts) return;
+    const [x, y] = cigXY(emberUV(), 0);
+    if (!cig.lit && cig.burn === 0) {
+      cig.lit = true; cig.litAt = t; cig.nextHeart = t + 1.8; cig.puff = 0.6;
+    } else if (cig.lit) {
+      cig.puff = 1; if (!heartActive(t)) { spawnHeart(t); cig.nextHeart = t + 7.5; }
+    }
+    for (let i = 0; i < 26; i++) { const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4, v = 15 + Math.random() * 35; sSparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: 0.4 + Math.random() * 0.5 }); }
+  });
+
+  // ================= Vape =================
+  const vapeWrap = document.getElementById("vapeWrap");
+  const vapeCanvas = document.getElementById("vapeCv");
+  const vctx = vapeCanvas.getContext("2d");
+  let vSp = 4, vOx = 0, vOy = 0, VW = 200, VH = 150, vLast = null;
+  const vape = { puffUntil: -1, puffStart: -9, holding: false, glow: 0 };
+  let vapor = [], vModel = null;
+  const BODY_W = 1.2, BODY_D = 0.64, BODY_H = 2.3, MP_H = 0.42;
+
+  function measureVape() {
+    if (vapeWrap.hidden) return;
+    const r = vapeWrap.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    vapeCanvas.width = Math.max(1, Math.round(r.width * dpr)); vapeCanvas.height = Math.max(1, Math.round(r.height * dpr));
+    vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    vSp = r.width < 500 ? 3 : 4;
+    VW = Math.floor(r.width / vSp); VH = Math.floor(r.height / vSp);
+    vOx = (r.width - VW * vSp) / 2 + vSp / 2; vOy = (r.height - VH * vSp) / 2 + vSp / 2;
+    if (!vModel) vModel = buildVape();
+  }
+
+  // signed-distance model: a rounded-box body joined smoothly to a smaller rounded mouthpiece
+  const sdRBox = (x, y, z, bx, by, bz, r) => {
+    const qx = Math.abs(x) - bx + r, qy = Math.abs(y) - by + r, qz = Math.abs(z) - bz + r;
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r;
+  };
+  const MP_Y = BODY_H / 2 + MP_H / 2 - 0.06;
+  function vSDF(x, y, z) {
+    const body = sdRBox(x, y, z, BODY_W / 2, BODY_H / 2, BODY_D / 2, 0.06);
+    const taper = 1 + Math.max(0, y - MP_Y) * 0.15;
+    const mp = sdRBox(x * taper, y - MP_Y, z * taper, 0.3, MP_H / 2, 0.17, 0.05) / taper;
+    const k = 0.03, h = Math.max(0, Math.min(1, 0.5 + 0.5 * (mp - body) / k));
+    return mp * (1 - h) + body * h - k * h * (1 - h);
+  }
+  function buildVape() { return true; }
+  const heartIn = (x, y) => { const q = x * x + y * y - 1; return q * q * q - x * x * y * y * y <= 0; };
+  function vMaterial(x, y, z) {
+    const top = BODY_H / 2;
+    if (y > top - 0.01 && Math.abs(x) < 0.34 && Math.abs(z) < 0.21) {
+      if (y > top + MP_H - 0.1 && Math.abs(x) < 0.13 && Math.abs(z) < 0.04) return 6;
+      return 1;
+    }
+    if (y > top - 0.03) return 5;
+    if (y < -top + 0.03) return Math.abs(x) < 0.16 && Math.abs(z) < 0.12 ? 4 : 5;
+    if (y > -top + 0.24 && y < -top + 0.31) return 2;
+    if (Math.abs(z) > BODY_D / 2 - 0.03 && Math.abs(x) < 0.42 && y > -0.62 && y < 0.85) {
+      const ex = Math.max(0, Math.abs(x) - 0.36), ey = Math.max(0, Math.abs(y - 0.115) - 0.675);
+      if (Math.hypot(ex, ey) < 0.06) return 3;
+    }
+    if (z > BODY_D / 2 - 0.05 && Math.abs(x) < 0.11 && y < -top + 0.17 && y > -top + 0.1) return 4;
+    return 0;
+  }
+
+  function vdot(x, y, a, r, g, b) {
+    if (a <= 0.02) return;
+    const q = (Math.min(15, Math.max(0, Math.round(r * a / 17))) << 8) | (Math.min(15, Math.max(0, Math.round(g * a / 17))) << 4) | Math.min(15, Math.max(0, Math.round(b * a / 17)));
+    vctx.fillStyle = QCOL[q];
+    vctx.fillRect(vOx + Math.round(x) * vSp - 1.4, vOy + Math.round(y) * vSp - 1.4, 2.8, 2.8);
+  }
+
+  function vapeScene(t) {
+    if (!vModel) measureVape();
+    const dt = vLast === null ? 0.016 : Math.min(0.05, Math.max(0, t - vLast)); vLast = t;
+    const r = vapeWrap.getBoundingClientRect();
+    const bg = vctx.createRadialGradient(r.width / 2, r.height * 0.5, 10, r.width / 2, r.height * 0.5, r.width * 0.7);
+    bg.addColorStop(0, "#1b0f17"); bg.addColorStop(1, "#07050a");
+    vctx.fillStyle = bg; vctx.fillRect(0, 0, r.width, r.height);
+
+    const puffing = vape.holding || t < vape.puffUntil;
+    vape.glow += ((puffing ? 1 : 0) - vape.glow) * Math.min(1, dt * (puffing ? 10 : 3));
+    const g = vape.glow;
+
+    // rotation: a slow turn, easing off while puffing
+    vape.ang = (vape.ang || 0) + dt * (0.9 - 0.55 * g);
+    const ay = vape.ang, ax = 0.22 + 0.06 * Math.sin(t * 0.7);
+    const cy_ = Math.cos(ay), sy_ = Math.sin(ay), cx_ = Math.cos(ax), sx_ = Math.sin(ax);
+    const total = BODY_H + MP_H, scale = Math.min(VH * 0.5 / total, VW * 0.42 / BODY_W);
+    const ccx = VW / 2, ccy = VH * 0.6 + Math.sin(t * 1.3) * 1.5;
+    const camZ = 7;
+    const L = [-0.45, 0.55, 0.7], ll = Math.hypot(...L); L[0] /= ll; L[1] /= ll; L[2] /= ll;
+    const Hh = [L[0], L[1], L[2] + 1], hl = Math.hypot(...Hh); Hh[0] /= hl; Hh[1] /= hl; Hh[2] /= hl;
+    const yoff = -MP_H / 2;
+
+    // soft glowing shadow underneath
+    for (let i = 0; i < 260; i++) {
+      const a = Math.random() * 6.28, d = Math.sqrt(Math.random());
+      const k = (1 - d) * (0.35 + 0.5 * g); if (Math.random() < k * 0.6) vdot(ccx + Math.cos(a) * d * scale * 0.9, ccy + (BODY_H / 2 - yoff) * scale * 1.02 + 4 + Math.sin(a) * d * scale * 0.18, 0.3 + 0.4 * k, 255, 120, 190);
+    }
+
+    // LED glow halo at the bottom
+    const by = ccy - (-BODY_H / 2 + yoff) * scale * cx_ + 2;
+    if (g > 0.02) {
+      const R = scale * (0.55 + 0.2 * g), fl = 0.85 + 0.15 * Math.sin(t * 22);
+      for (let i = 0; i < 420; i++) {
+        const a = Math.random() * 6.28, d = Math.sqrt(Math.random()) * R;
+        const k = (1 - d / R) * g * fl; if (Math.random() < k * 0.9) vdot(ccx + Math.cos(a) * d, by + Math.sin(a) * d * 0.6, 0.45 + 0.55 * k, 255, 140, 215);
+      }
+    }
+
+    // ray-march every pixel inside the projected bounding box
+    const ox = (wx, wy, wz) => { // world -> object (undo tilt, then undo turn)
+      const y1 = wy * cx_ + wz * sx_, z1 = -wy * sx_ + wz * cx_;
+      return [wx * cy_ - z1 * sy_, y1 - yoff, wx * sy_ + z1 * cy_];
+    };
+    const toWorld = (x, y, z) => { // object -> world (turn, then tilt), directions only
+      const x1 = x * cy_ + z * sy_, z1 = -x * sy_ + z * cy_;
+      return [x1, y * cx_ - z1 * sx_, y * sx_ + z1 * cx_];
+    };
+    const D = ox(0, 0, -1); D[1] += yoff; // a direction must not pick up the position offset
+    const ext = 0.95, yTop = BODY_H / 2 + MP_H + yoff + 0.7, yBot = -BODY_H / 2 + yoff - 0.7;
+    const x0 = Math.max(0, Math.floor(ccx - ext * scale * 1.15)), x1b = Math.min(VW - 1, Math.ceil(ccx + ext * scale * 1.15));
+    const y0 = Math.max(0, Math.floor(ccy - yTop * scale * 1.05)), y1b = Math.min(VH - 1, Math.ceil(ccy - yBot * scale * 1.05));
+    for (let Y = y0; Y <= y1b; Y++) for (let X = x0; X <= x1b; X++) {
+      const wx = (X - ccx) / scale, wy = -(Y - ccy) / scale;
+      let [px, py, pz] = ox(wx, wy, 3);
+      let tt = 0, hit = false;
+      for (let s = 0; s < 48; s++) {
+        const d = vSDF(px + D[0] * tt, py + D[1] * tt, pz + D[2] * tt);
+        if (d < 0.003) { hit = true; break; }
+        tt += d;
+        if (tt > 6) break;
+      }
+      if (!hit) continue;
+      const hx = px + D[0] * tt, hy = py + D[1] * tt, hz = pz + D[2] * tt, e = 0.004;
+      let nx = vSDF(hx + e, hy, hz) - vSDF(hx - e, hy, hz), ny = vSDF(hx, hy + e, hz) - vSDF(hx, hy - e, hz), nz = vSDF(hx, hy, hz + e) - vSDF(hx, hy, hz - e);
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      const [NX, NY, NZ] = toWorld(nx / nl, ny / nl, nz / nl);
+      const diff = Math.max(0, NX * L[0] + NY * L[1] + NZ * L[2]);
+      const spec = Math.max(0, NX * Hh[0] + NY * Hh[1] + NZ * Hh[2]) ** 40;
+      const rim = Math.max(0, 1 - NZ) ** 3 * 0.4;
+      const mat = vMaterial(hx, hy, hz);
+      const fy = (hy + BODY_H / 2) / BODY_H;
+      let base, a = 1, shine = 1;
+      if (mat === 0) base = [255, 105 + 70 * (1 - fy), 180 + 35 * (1 - fy)];
+      else if (mat === 1) { base = [255, 175, 215]; a = 0.9; shine = 1.4; }
+      else if (mat === 2) base = [255, 240, 248];
+      else if (mat === 3) { // galaxy window: nebula swirls and twinkling stars, brighter when you puff
+        const u = hx * 6, v = hy * 6, side = hz > 0 ? 0 : 3.1;
+        const neb = 0.5 + 0.5 * Math.sin(u * 1.3 + Math.sin(v * 0.9 + t * 0.4 + side) * 2 + v * 0.6);
+        const neb2 = 0.5 + 0.5 * Math.sin(v * 1.7 - u * 0.8 + Math.sin(u * 1.1 - t * 0.3) * 1.5);
+        const boost = 0.35 + 0.9 * g;
+        base = [(40 + 150 * neb * neb2 + 60 * neb) * boost, (20 + 40 * neb2) * boost, (90 + 130 * neb2 + 40 * neb) * boost];
+        const cx = Math.floor(hx * 46), cy = Math.floor(hy * 46);
+        const hsh = Math.abs(Math.sin(cx * 127.1 + cy * 311.7 + side * 74.7) * 43758.5453) % 1;
+        if (hsh > 0.93) {
+          const tw = 0.5 + 0.5 * Math.sin(t * (2 + hsh * 6) + hsh * 40);
+          const b = (hsh > 0.985 ? 1 : 0.6) * (0.35 + 0.65 * tw) * (0.5 + 0.9 * g);
+          base = base.map((c, i) => Math.min(255, c + [255, 235, 250][i] * b));
+        }
+        shine = 0.8;
+      }
+      else if (mat === 4) { base = [80 + 175 * g, 30 + 210 * g, 70 + 180 * g]; shine = 0.5; }
+      else if (mat === 5) base = [215, 80, 150];
+      else { base = [40, 18, 32]; shine = 0.2; }
+      const lit = (mat === 4 ? 0.6 + 0.4 * g : mat === 3 ? 0.75 + 0.25 * diff : 0.25 + 0.75 * diff) + g * 0.9 * Math.max(0, 1 - (hy + BODY_H / 2) / 0.7);
+      vdot(X, Y, a,
+        Math.min(255, base[0] * lit + 255 * (spec * shine + rim)),
+        Math.min(255, base[1] * lit + 255 * spec * shine + 120 * rim),
+        Math.min(255, base[2] * lit + 255 * spec * shine + 200 * rim));
+    }
+
+    // vapor from the mouthpiece
+    const topY = BODY_H / 2 + MP_H + yoff;
+    const mx = ccx + (-topY * sx_ * 0) , my = ccy - (topY * cx_) * scale;
+    if (puffing && t - vape.puffStart > 0.15) {
+      vape.acc = (vape.acc || 0) + dt * 130 * g;
+      while (vape.acc >= 1) {
+        vape.acc--;
+        vapor.push({ x: mx + (Math.random() - 0.5) * 2, y: my - 1, vx: (Math.random() - 0.5) * 14, vy: -22 - Math.random() * 16, r: 1, life: 0, max: 2.2 + Math.random() * 1.6, ph: Math.random() * 6.28 });
+      }
+    }
+    vapor = vapor.filter(p => (p.life += dt) < p.max);
+    for (const p of vapor) {
+      p.vx += Math.sin(p.y * 0.08 + t + p.ph) * 6 * dt; p.vy *= 1 - dt * 1.1; p.vx *= 1 - dt * 0.6;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.r = 1.5 + p.life * 8;
+      const a = (1 - p.life / p.max) ** 1.3 * 0.75;
+      const n = Math.min(26, 4 + Math.round(p.r * 2));
+      for (let k = 0; k < n; k++) {
+        const an = Math.random() * 6.28, d = Math.sqrt(Math.random()) * p.r;
+        if (Math.random() < a * (1 - d / (p.r + 1) * 0.6) + 0.05) vdot(p.x + Math.cos(an) * d, p.y + Math.sin(an) * d, 0.55 + 0.45 * a, 252, 232, 246);
+      }
+    }
+  }
+
+  vapeWrap.addEventListener("pointerdown", e => {
+    const t = (performance.now() - t0) / 1000;
+    vape.holding = true; vape.puffStart = t; vape.puffUntil = t + 1.8;
+    try { vapeWrap.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  const vapeUp = () => {
+    const t = (performance.now() - t0) / 1000;
+    vape.holding = false; vape.puffUntil = Math.max(vape.puffUntil, t + 0.2);
+  };
+  vapeWrap.addEventListener("pointerup", vapeUp);
+  vapeWrap.addEventListener("pointercancel", vapeUp);
+
+  // ================= Botan (3D onsen seal, rendered in ASCII) =================
+  const sealWrap = document.getElementById("sealWrap");
+  const sealCanvas = document.getElementById("sealCv");
+  const kctx = sealCanvas.getContext("2d");
+  let kFs = 8.5, kCW = 6, kCH = 10, KC = 100, KR = 50, kLast = null;
+  const seal = { spinAt: -99, landed: true, ripples: [] };
+  const K_RAMP = " .`,:;-~=+*cox#%&@";
+  const PINKS = [[70, 18, 48], [150, 40, 100], [235, 90, 165], [255, 150, 200], [255, 205, 228], [255, 240, 248]];
+  const KQ = new Map();
+  const pinkAt = b => {
+    b = Math.max(0, Math.min(1, b)) * (PINKS.length - 1);
+    const i = Math.min(PINKS.length - 2, Math.floor(b)), f = b - i, a = PINKS[i], c = PINKS[i + 1];
+    return [a[0] + (c[0] - a[0]) * f, a[1] + (c[1] - a[1]) * f, a[2] + (c[2] - a[2]) * f];
+  };
+  const kStyle = c => {
+    const key = (c[0] >> 3) << 10 | (c[1] >> 3) << 5 | (c[2] >> 3);
+    let s = KQ.get(key);
+    if (!s) { s = `rgb(${(c[0] >> 3) << 3},${(c[1] >> 3) << 3},${(c[2] >> 3) << 3})`; KQ.set(key, s); }
+    return s;
+  };
+
+  function measureSeal() {
+    if (sealWrap.hidden) return;
+    const r = sealWrap.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+    sealCanvas.width = Math.max(1, Math.round(r.width * dpr)); sealCanvas.height = Math.max(1, Math.round(r.height * dpr));
+    kctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    kFs = r.width < 500 ? 7 : 8.5;
+    kctx.font = `bold ${kFs}px "JetBrains Mono", ui-monospace, monospace`;
+    kCW = kctx.measureText("M").width; kCH = kFs * 1.12;
+    KC = Math.floor(r.width / kCW); KR = Math.floor(r.height / kCH);
+  }
+
+  // ---- model: y up, z toward the viewer, water surface at y = 0 ----
+  const sdEll = (x, y, z, rx, ry, rz) => {
+    const k0 = Math.hypot(x / rx, y / ry, z / rz), k1 = Math.hypot(x / (rx * rx), y / (ry * ry), z / (rz * rz));
+    return k1 > 0 ? k0 * (k0 - 1) / k1 : -Math.min(rx, ry, rz);
+  };
+  const smin = (a, b, k) => { const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / k)); return b + (a - b) * h - k * h * (1 - h); };
+  const rz2 = (x, y, a) => [x * Math.cos(a) + y * Math.sin(a), -x * Math.sin(a) + y * Math.cos(a)];
+  const onEll = (c, r, d) => { const l = Math.hypot(...d); return [c[0] + r[0] * d[0] / l, c[1] + r[1] * d[1] / l, c[2] + r[2] * d[2] / l]; };
+
+  // the tub: wide wooden bucket floating in front of him, open at the top
+  const TUB = { z: 0.5, R: 0.4, Ri: 0.35, bot: 0.12, rim: 0.56 };
+  // seal pieces (in his own frame, pivot at x = 0, z = -0.25)
+  const HEAD_C = [0, 1.12, -0.12], HEAD_R = [0.52, 0.5, 0.5];
+  const MUZ_C = [0, 0.82, 0.24], MUZ_R = [0.29, 0.23, 0.27];
+  const EYES = [onEll(HEAD_C, HEAD_R, [-0.42, 0.18, 0.89]), onEll(HEAD_C, HEAD_R, [0.42, 0.18, 0.89])];
+  const NOSE = onEll(MUZ_C, MUZ_R, [0, 0.62, 0.78]);
+  const BOTTLE = [0.15, TUB.bot + 0.05, 0.56];
+
+  function sealBody(x, y, z) {
+    let s = sdEll(x, y - 0.25, z + 0.3, 0.66, 0.85, 0.5);                    // shoulders, mostly underwater
+    s = smin(s, sdEll(x - HEAD_C[0], y - HEAD_C[1], z - HEAD_C[2], ...HEAD_R), 0.32);
+    s = smin(s, sdEll(x - MUZ_C[0], y - MUZ_C[1], z - MUZ_C[2], ...MUZ_R), 0.14);
+    for (const k of [-1, 1]) {                                                  // front flippers wrapped around the bucket
+      const arm = sdEll(x - 0.47 * k, y - 0.36, z - 0.3, 0.13, 0.15, 0.34);
+      const hand = sdEll(x - 0.4 * k, y - 0.34, z - 0.62, 0.1, 0.16, 0.12);
+      s = smin(s, Math.min(arm, hand), 0.12);
+    }
+    return s;
+  }
+  function towelSDF(x, y, z) {
+    const [tx, ty0] = rz2(x - 0.02, y - 1.58, -0.1);
+    const ty = ty0 + tx * tx * 0.28;                                          // ends droop a little
+    const qx = Math.abs(tx) - 0.56, qy = Math.abs(ty) - 0.06, qz = Math.abs(z + 0.08) - 0.3;
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - 0.05;
+  }
+  function tubSDF(x, y, z) {
+    const r = Math.hypot(x, z - TUB.z), yc = (TUB.rim + TUB.bot) / 2, h = (TUB.rim - TUB.bot) / 2;
+    const outer = Math.max(r - TUB.R, Math.abs(y - yc) - h);
+    const inner = Math.max(r - TUB.Ri, TUB.bot + 0.06 - y);
+    return Math.max(outer, -inner);
+  }
+  function bottleSDF(x, y, z) {
+    const yl = y - BOTTLE[1], r = Math.hypot(x - BOTTLE[0], z - BOTTLE[2]);
+    const f = 0.035 + 0.08 * Math.exp(-(((yl - 0.11) / 0.12) ** 2)) + (yl > 0.5 ? 0.018 : 0);
+    return Math.max((r - f) * 0.8, Math.abs(yl - 0.27) - 0.27);
+  }
+
+  // whole scene; (cs, sn, lift) place the seal and towel for his spin and hop
+  // everything belongs to him now: the bucket and bottle turn with him when he spins
+  function scene(x, y, z, cs, sn, lift) {
+    const sx = (x) * cs - (z + 0.25) * sn, sz = (x) * sn + (z + 0.25) * cs - 0.25, sy = y - lift;
+    const sb = sealBody(sx, sy, sz), tw = towelSDF(sx, sy, sz), tb = tubSDF(sx, sy, sz), bt = bottleSDF(sx, sy, sz);
+    const d = Math.min(sb, tw, tb, bt);
+    return { d, sb, tw, tb, bt, fl: 1e9, sx, sy, sz };
+  }
+
+  function material(P) {
+    const { sb, tw, tb, bt, fl, sx, sy, sz } = P;
+    const m = Math.min(sb, tw, tb, bt, fl);
+    if (m === tw) { // patterned towel
+      const [tx] = rz2(sx - 0.02, sy - 1.58, -0.1);
+      const mark = Math.sin(tx * 13) * Math.sin(sz * 15) > 0.82;
+      return { tint: mark ? -0.35 : 0.32, ch: mark ? "x" : null };
+    }
+    if (m === bt) return { tint: Math.abs(Math.sin((sy - BOTTLE[1]) * 40 + Math.atan2(sz - BOTTLE[2], sx - BOTTLE[0]) * 2)) < 0.25 ? -0.55 : 0.35 };
+    if (m === tb) {
+      const r = Math.hypot(sx, sz - TUB.z), ang = Math.atan2(sz - TUB.z, sx);
+      if (r < TUB.Ri + 0.005 && sy < TUB.rim - 0.01) return { tint: -0.08 };            // inside wall
+      if (sy > TUB.rim - 0.015) return { tint: 0.18 };                                     // rim
+      if (Math.abs(sy - TUB.bot - 0.09) < 0.025 || Math.abs(sy - TUB.bot - 0.31) < 0.025) return { tint: -0.45, ch: "=" }; // metal hoops
+      return { tint: Math.abs(Math.sin(ang * 12)) < 0.12 ? -0.2 : 0.05 };                  // wooden staves
+    }
+    if (m === fl) return { tint: -0.25 };
+    // the seal's face
+    for (const e of EYES) {
+      const d = Math.hypot(sx - e[0], sy - e[1], sz - e[2]);
+      if (Math.abs(d - 0.11) < 0.035 && sy < e[1] - 0.01) return { dark: true, ch: "=" };  // eyes peacefully shut
+    }
+    const dn = Math.hypot(sx - NOSE[0], sy - NOSE[1], sz - NOSE[2]);
+    if (dn < 0.09) return { dark: true, ch: Math.abs(sx) > 0.03 ? "@" : "v" };            // nose
+    if (sz > MUZ_C[2] && sy < MUZ_C[1] - 0.06 && sy > MUZ_C[1] - 0.12 && Math.abs(sx) < 0.16) return { dark: true, ch: "-" }; // mouth
+    if (sz > MUZ_C[2] + 0.05 && sy > MUZ_C[1] - 0.05 && Math.abs(sx) > 0.09 && Math.abs(sx) < 0.24 && Math.sin(sx * 80) * Math.sin(sy * 80) > 0.5) return { dark: true, ch: "." };
+    return { tint: -0.12 };  // he's a darker pink than everything around him
+  }
+
+  function sealScene(t) {
+    const dt = kLast === null ? 0.016 : Math.min(0.05, Math.max(0, t - kLast)); kLast = t;
+    const r = sealWrap.getBoundingClientRect();
+    kctx.fillStyle = "#0e0710"; kctx.fillRect(0, 0, r.width, r.height);
+    kctx.font = `bold ${kFs}px "JetBrains Mono", ui-monospace, monospace`; kctx.textBaseline = "top";
+
+    const sp = (t - seal.spinAt) / 1.4, spinning = sp >= 0 && sp < 1;
+    if (spinning && !seal.landed && sp > 0.86) { seal.landed = true; seal.ripples.push({ at: t, big: 1 }); }
+    const th = (spinning ? easeP(sp) * Math.PI * 2 : 0) + Math.sin(t * 0.45) * 0.12;
+    const lift = spinning ? Math.sin(Math.PI * sp) * 0.28 : Math.sin(t * 1.1) * 0.02;
+    const cs = Math.cos(th), sn = Math.sin(th);
+    const bob = Math.sin(t * 1.1 + 0.6) * 0.015;  // the tub floats too
+
+    const tilt = 0.22, fwd = [0, -Math.sin(tilt), -Math.cos(tilt)], up = [0, Math.cos(tilt), -Math.sin(tilt)];
+    const scalePx = Math.min(r.height * 0.34, r.width * (r.width < 500 ? 0.48 : 0.3));
+    const cxPx = r.width / 2, cyPx = r.height * 0.5, TGT = 0.72;
+    const L = [-0.28, 0.5, 0.82], ln = Math.hypot(...L); L[0] /= ln; L[1] /= ln; L[2] /= ln;
+    const draw = (col, row, ch, c) => { kctx.fillStyle = kStyle(c); kctx.fillText(ch, col * kCW, row * kCH); };
+    const proj = (X, Y, Z) => [cxPx + X * scalePx, cyPx - ((Y - TGT) * up[1] + Z * up[2]) * scalePx];
+
+    for (let row = 0; row < KR; row++) for (let col = 0; col < KC; col++) {
+      const px = (col + 0.5) * kCW, py = (row + 0.5) * kCH;
+      const wx = (px - cxPx) / scalePx, wy = -(py - cyPx) / scalePx;
+      const o = [wx, TGT + wy * up[1] - fwd[1] * 6, wy * up[2] - fwd[2] * 6];
+      const tw = fwd[1] < 0 ? (0 - o[1]) / fwd[1] : 1e9;
+      let tt = 0, hit = false, P = null;
+      if (Math.abs(wx) < 1.0 && wy > -1.1 && wy < 1.4) {
+        for (let s = 0; s < 64; s++) {
+          const X = o[0] + fwd[0] * tt, Y = o[1] + fwd[1] * tt - bob, Z = o[2] + fwd[2] * tt;
+          P = scene(X, Y, Z, cs, sn, lift);
+          if (P.d < 0.003) { hit = true; P.x = X; P.y = Y; P.z = Z; break; }
+          tt += P.d * 0.9;
+          if (tt > 12 || tt > tw) break;
+        }
+      }
+      if (hit && tt < tw) {
+        const e = 0.005, f = (a, b, c) => scene(a, b, c, cs, sn, lift).d;
+        let nx = f(P.x + e, P.y, P.z) - f(P.x - e, P.y, P.z), ny = f(P.x, P.y + e, P.z) - f(P.x, P.y - e, P.z), nz = f(P.x, P.y, P.z + e) - f(P.x, P.y, P.z - e);
+        const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+        const diff = Math.max(0, nx * L[0] + ny * L[1] + nz * L[2]);
+        const view = Math.max(0, -(nx * fwd[0] + ny * fwd[1] + nz * fwd[2]));
+        const spec = Math.pow(Math.max(0, ny * 0.55 + nz * 0.6 - nx * 0.35), 20) * 0.45;
+        const m = material(P);
+        if (m.dark) { draw(col, row, m.ch, [205, 35, 120]); continue; }
+        const lum = Math.max(0, Math.min(1, 0.22 + 0.7 * diff + spec + Math.pow(1 - view, 3) * 0.25 + m.tint * 0.6));
+        const ch = m.ch || K_RAMP[Math.min(K_RAMP.length - 1, 1 + Math.floor(lum * (K_RAMP.length - 2)))];
+        draw(col, row, ch, pinkAt(lum * 0.92 + Math.max(0, m.tint) * 0.3));
+        continue;
+      }
+      if (tw < 1e8) { // the pool, all the way back
+        const X = o[0] + fwd[0] * tw, Z = o[2] + fwd[2] * tw, rd = Math.hypot(X, Z + 0.15);
+        let w = 0.24 + 0.14 * Math.sin(X * 2.4 + Z * 1.3 + t * 1.1) * Math.sin(Z * 3.1 - t * 0.8) + 0.08 * Math.sin(X * 7 - Z * 5 + t * 2);
+        w += 0.12 * Math.sin(rd * 10 - t * 3) * Math.exp(-(rd - 0.7) * 1.5) * (rd > 0.7 ? 1 : 0);
+        for (const rp of seal.ripples) {
+          const a = t - rp.at, ring = rd - (0.75 + a * 1.3);
+          w += Math.exp(-ring * ring * 30) * (1 - a / 2.4) * 0.55 * rp.big;
+        }
+        if (Math.abs(X) < 0.75 && Z < 0.5 && Z > -0.9) w -= 0.12;   // his reflection darkens the water
+        const fade = Math.max(0.15, Math.min(1, 1 - (-Z - 1) / 9));
+        w *= fade;
+        const ch = w > 0.44 ? "≈" : w > 0.35 ? "~" : w > 0.27 ? "-" : w > 0.2 && ((col + row) & 1) ? "." : "";
+        if (ch) draw(col, row, ch, pinkAt(0.2 + w * 0.7));
+      }
+    }
+
+    // long whiskers, drawn as character lines from the sides of his muzzle
+    if (cs > 0.2) {
+      const toWorld = (p) => { // seal frame -> world
+        const x = p[0], z = p[2] + 0.25;
+        return [x * cs + z * sn, p[1] + lift + bob, -x * sn + z * cs - 0.25];
+      };
+      for (const s of [-1, 1]) for (let k = 0; k < 7; k++) {
+        const root = [s * 0.17, MUZ_C[1] - 0.02 + (k - 3) * 0.025, MUZ_C[2] + 0.2];
+        const ang = (k - 3) * 0.16 + Math.sin(t * 1.2 + k) * 0.02, len = 0.55 + (k % 3) * 0.12;
+        const tip = [root[0] + s * Math.cos(ang) * len, root[1] + Math.sin(ang) * len * 0.8, root[2] + 0.05];
+        const [ax, ay] = proj(...toWorld(root)), [bx, by] = proj(...toWorld(tip));
+        const n = Math.ceil(Math.hypot(bx - ax, by - ay) / kCW);
+        const slope = (by - ay) / (bx - ax || 1e-6);
+        const ch = Math.abs(slope) < 0.25 ? "-" : (slope * s > 0 ? "\\" : "/");
+        for (let i = 2; i < n; i++) {
+          const px = ax + (bx - ax) * i / n, py = ay + (by - ay) * i / n;
+          draw(Math.floor(px / kCW), Math.floor(py / kCH), ch, pinkAt(0.85 - i / n * 0.3));
+        }
+      }
+      for (const s of [-1, 1]) for (let k = 0; k < 3; k++) { // brow whiskers
+        const root = [s * (0.2 + k * 0.06), 1.36, 0.28];
+        const tip = [root[0] + s * 0.12, root[1] + 0.32 + k * 0.05, root[2]];
+        const [ax, ay] = proj(...toWorld(root)), [bx, by] = proj(...toWorld(tip));
+        const n = Math.ceil(Math.hypot(bx - ax, by - ay) / kCH);
+        for (let i = 1; i < n; i++) draw(Math.floor((ax + (bx - ax) * i / n) / kCW), Math.floor((ay + (by - ay) * i / n) / kCH), s > 0 ? "/" : "\\", pinkAt(0.8));
+      }
+    }
+
+    seal.ripples = seal.ripples.filter(rp => t - rp.at < 2.4);
+    if (Math.random() < dt * 0.4) seal.ripples.push({ at: t, big: 0.35 });
+  }
+
+  sealWrap.addEventListener("pointerdown", () => {
+    const t = (performance.now() - t0) / 1000;
+    if (t - seal.spinAt > 1.4) { seal.spinAt = t; seal.landed = false; }
+  });
+
   // ================= Views + loop =================
   function show(v) {
-    view = ["moon", "fireworks", "bunny", "her"].includes(v) ? v : "moon";
+    view = ["moon", "fireworks", "bunny", "her", "smoke", "vape", "botan"].includes(v) ? v : "moon";
     document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-pressed", b.dataset.view === view));
     wrap.hidden = view !== "bunny";
     artWrap.hidden = view !== "her";
     fwWrap.hidden = view !== "fireworks";
     moonWrap.hidden = view !== "moon";
+    smokeWrap.hidden = view !== "smoke";
+    vapeWrap.hidden = view !== "vape";
+    sealWrap.hidden = view !== "botan";
     if (view === "moon") mT0 = performance.now();
     try { history.replaceState(null, "", "#" + view); } catch (e) {}
-    measure(); measureArt(); measureFw(); measureMoon();
+    measure(); measureArt(); measureFw(); measureMoon(); measureSmoke(); measureVape(); measureSeal();
   }
   document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
 
@@ -751,6 +1431,12 @@ nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
       moonStar(Math.max(0, now - mT0) / 1000);
     } else if (view === "fireworks") {
       fireworks(t);
+    } else if (view === "botan") {
+      sealScene(t);
+    } else if (view === "vape") {
+      vapeScene(t);
+    } else if (view === "smoke") {
+      smokeScene(t);
     } else if (view === "bunny") {
       const out = bunny(t);
       let s = "";
@@ -762,8 +1448,8 @@ nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
     if (reduce) setTimeout(() => requestAnimationFrame(frame), 120); else requestAnimationFrame(frame);
   }
 
-  new ResizeObserver(() => { measure(); measureArt(); measureFw(); measureMoon(); }).observe(document.body);
-  document.fonts.ready.then(() => { measure(); measureArt(); measureFw(); measureMoon(); });
+  new ResizeObserver(() => { measure(); measureArt(); measureFw(); measureMoon(); measureSmoke(); measureVape(); measureSeal(); }).observe(document.body);
+  document.fonts.ready.then(() => { measure(); measureArt(); measureFw(); measureMoon(); measureSmoke(); measureVape(); measureSeal(); });
   show(location.hash.slice(1));
   requestAnimationFrame(frame);
 })();
