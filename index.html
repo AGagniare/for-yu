@@ -191,7 +191,7 @@ nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px
     const by = gy - 7 - Math.round(height);
     if (height >= 1) put(out, bun.x + 2, gy, ".:::::::.");
     sprite.forEach((line, i) => put(out, bun.x, by + i, line));
-    if (bun.eat > 0) put(out, bun.x + 3, by - 1, "nom nom");
+    if (bun.eat > 0) put(out, bun.x + 3, by - 1, "hehehe");
 
     for (const c of carrots) { put(out, c.x, c.y, "\\|/"); put(out, c.x, c.y + 1, " V "); }
     hearts = hearts.filter(h => (h.life -= dt) > 0);
