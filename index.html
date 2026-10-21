@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>For u</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Major+Mono+Display&display=swap">
+<style>
+/* Layout: one-screen glowing screen with the title and page switch above it */
+:root {
+  --bg: #120d10;
+  --panel: #1d1418;
+  --line: #33242c;
+  --accent: #ff8fc8;
+  --glow: rgba(255, 143, 200, .5);
+  --font-display: "Major Mono Display", "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --font-braille: "DejaVu Sans Mono", "Segoe UI Symbol", "Apple Braille", "Noto Sans Symbols 2", monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--accent);
+  font-family: var(--font-mono);
+  display: flex; flex-direction: column;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+  gap: 12px; box-sizing: border-box; overflow: hidden;
+}
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--font-display); font-weight: 400; font-size: 1.8rem; margin: 0; color: var(--accent); text-shadow: 0 0 10px var(--glow); }
+nav { display: flex; gap: 6px; }
+nav button {
+  font: inherit; font-size: .8rem; color: var(--accent); background: var(--panel);
+  border: 1px solid var(--line); padding: 6px 14px; cursor: pointer; border-radius: 3px;
+}
+nav button[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.screenWrap {
+  flex: 1; min-height: 0; position: relative; border: 1px solid var(--line); border-radius: 4px;
+  background: radial-gradient(ellipse at center, #22151c 0%, var(--bg) 75%);
+  overflow: hidden; touch-action: none; cursor: pointer;
+}
+.screen {
+  margin: 0; position: absolute; inset: 0; padding: 8px;
+  font-family: var(--font-mono); font-size: 14px; line-height: 1;
+  color: var(--accent); white-space: pre; user-select: none;
+  text-shadow: 0 0 6px var(--glow);
+}
+#artScreen { font-family: var(--font-braille); display: flex; align-items: center; justify-content: center; padding: 0; }
+#artScreen span { display: block; }
+#fw { position: absolute; inset: 0; width: 100%; height: 100%; display: block; filter: drop-shadow(0 0 5px rgba(255, 143, 200, .45)); }
+.screenWrap::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.18) 2px 3px);
+}
+</style>
+
+<header>
+  <h1>For u</h1>
+  <nav aria-label="Pages">
+    <button data-view="fireworks" aria-pressed="true">Fireworks</button>
+    <button data-view="bunny" aria-pressed="false">Bunny</button>
+    <button data-view="her" aria-pressed="false">Her</button>
+  </nav>
+</header>
+<div class="screenWrap" id="fwWrap"><canvas id="fw" aria-label="ASCII fireworks over a city skyline"></canvas></div>
+<div class="screenWrap" id="bunnyWrap" hidden><pre class="screen" id="screen" aria-label="An animated ASCII bunny"></pre></div>
+<div class="screenWrap" id="artWrap" hidden><pre class="screen" id="artScreen" aria-label="ASCII portrait on rippling water"><span id="artText"></span></pre></div>
+
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let view = "fireworks";
+
+  // ================= Bunny =================
+  const screen = document.getElementById("screen");
+  const wrap = document.getElementById("bunnyWrap");
+  let cols = 80, rows = 40, charW = 8.4, charH = 14;
+  const mouse = { x: 0.5, y: 0.5, inside: false };
+
+  function measure() {
+    if (wrap.hidden) return;
+    const fs = wrap.clientWidth < 500 ? 11 : 14;
+    screen.style.fontSize = fs + "px";
+    const probe = document.createElement("span");
+    probe.textContent = "M".repeat(50);
+    probe.style.visibility = "hidden";
+    screen.appendChild(probe);
+    charW = probe.getBoundingClientRect().width / 50;
+    charH = fs;
+    probe.remove();
+    const r = wrap.getBoundingClientRect();
+    cols = Math.max(16, Math.floor((r.width - 16) / charW));
+    rows = Math.max(14, Math.floor((r.height - 16) / charH));
+  }
+
+  const W = 13;
+  const EARS_UP = ["  (\\     /)  ", "  ( \\   / )  "];
+  const EARS_TWITCH = ["  (\\     __  ", "  ( \\   /__) "];
+  const FEET_SIT = "  (_)   (_)  ";
+  const FEET_HOP = "   /|   |\\   ";
+  const bun = { x: null, hopping: false, hopStart: 0, from: 0, to: 0, rest: 0, eat: 0, wanderX: 0, wanderT: 0 };
+  let carrots = [], hearts = [], lastBT = 0;
+  const hash = x => ((x * 2654435761) >>> 0) % 97;
+
+  function put(out, x, y, s) {
+    x = Math.round(x); y = Math.round(y);
+    if (y < 0 || y >= rows) return;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i], cx = x + i;
+      if (c !== " " && cx >= 0 && cx < cols) out[cx + y * cols] = c;
+    }
+  }
+
+  function bunny(t) {
+    const dt = Math.min(0.05, Math.max(0, t - lastBT)); lastBT = t;
+    const out = new Array(cols * rows).fill(" ");
+    const gy = rows - 3;
+    if (bun.x === null || bun.x > cols - W) bun.x = Math.max(0, (cols - W) / 2);
+
+    for (let x = 0; x < cols; x++) {
+      const h = hash(x);
+      out[x + (rows - 2) * cols] = h % 7 === 0 ? "," : h % 5 === 0 ? "." : "_";
+      if (h % 3 === 0) out[x + (rows - 1) * cols] = ".";
+      if (h % 11 === 0) out[x + gy * cols] = h % 2 ? "'" : ",";
+    }
+
+    for (const c of carrots) {
+      if (!c.landed) { c.vy += 60 * dt; c.y += c.vy * dt; if (c.y >= gy - 1) { c.y = gy - 1; c.landed = true; } }
+    }
+
+    const center = bun.x + 6;
+    let target, carrot = null;
+    if (carrots.length) {
+      carrot = carrots.reduce((a, b) => Math.abs(a.x + 1 - center) < Math.abs(b.x + 1 - center) ? a : b);
+      target = carrot.x + 1;
+    } else if (mouse.inside) {
+      target = mouse.x * cols;
+    } else {
+      if (t > bun.wanderT) { bun.wanderX = Math.random() * cols; bun.wanderT = t + 3 + Math.random() * 4; }
+      target = bun.wanderX;
+    }
+
+    let height = 0;
+    if (bun.eat > 0) {
+      bun.eat -= dt;
+      if (bun.eat <= 0) for (let i = 0; i < 3; i++) hearts.push({ x: bun.x + 3 + i * 3, y: gy - 8, life: 1.4 + i * 0.2 });
+    } else if (bun.hopping) {
+      const p = (t - bun.hopStart) / 0.45;
+      if (p >= 1) { bun.x = bun.to; bun.hopping = false; bun.rest = 0.18; }
+      else { bun.x = bun.from + (bun.to - bun.from) * p; height = 4 * Math.sin(Math.PI * p); }
+    } else {
+      bun.rest -= dt;
+      const d = target - center;
+      if (bun.rest <= 0 && Math.abs(d) > 1.5) {
+        bun.hopping = true; bun.hopStart = t; bun.from = bun.x;
+        bun.to = Math.max(0, Math.min(cols - W, bun.x + Math.max(-9, Math.min(9, d))));
+      }
+    }
+
+    if (!bun.hopping && bun.eat <= 0 && carrot && carrot.landed && Math.abs(carrot.x + 1 - (bun.x + 6)) <= 2.5) {
+      carrots.splice(carrots.indexOf(carrot), 1);
+      bun.eat = 1.2;
+    }
+
+    const look = bun.eat > 0 ? 0 : Math.abs(target - (bun.x + 6)) > 3 ? Math.sign(target - (bun.x + 6)) : 0;
+    const blink = t % 3.3 < 0.15;
+    const eye = bun.eat > 0 ? "^" : blink ? "-" : "o";
+    const eyes = look < 0 ? ` | ${eye}   ${eye}   | ` : look > 0 ? ` |   ${eye}   ${eye} | ` : ` |  ${eye}   ${eye}  | `;
+    const mouth = bun.eat > 0 ? (Math.floor(t / 0.15) % 2 ? "o" : "w") : "w";
+    const ears = t % 5.7 < 0.3 ? EARS_TWITCH : EARS_UP;
+    const sprite = [
+      ears[0], ears[1],
+      "   \\ \\ / /   ",
+      "  /       \\  ",
+      eyes,
+      `=|    ${mouth}    |=`,
+      "  \\_______/  ",
+      height > 0.5 ? FEET_HOP : FEET_SIT,
+    ];
+    const by = gy - 7 - Math.round(height);
+    if (height >= 1) put(out, bun.x + 2, gy, ".:::::::.");
+    sprite.forEach((line, i) => put(out, bun.x, by + i, line));
+    if (bun.eat > 0) put(out, bun.x + 3, by - 1, "nom nom");
+
+    for (const c of carrots) { put(out, c.x, c.y, "\\|/"); put(out, c.x, c.y + 1, " V "); }
+    hearts = hearts.filter(h => (h.life -= dt) > 0);
+    for (const h of hearts) { h.y -= 5 * dt; put(out, h.x, h.y, "<3"); }
+    return out;
+  }
+
+  function setPos(e) {
+    const r = wrap.getBoundingClientRect();
+    mouse.x = (e.clientX - r.left - 8) / (r.width - 16);
+    mouse.y = (e.clientY - r.top - 8) / (r.height - 16);
+  }
+  wrap.addEventListener("pointerdown", e => {
+    mouse.inside = true; setPos(e);
+    if (carrots.length < 8) carrots.push({ x: Math.max(0, Math.min(cols - 3, Math.round(mouse.x * cols) - 1)), y: Math.max(0, mouse.y * rows), vy: 0, landed: false });
+  });
+  wrap.addEventListener("pointermove", e => { mouse.inside = true; setPos(e); });
+  wrap.addEventListener("pointerleave", e => { if (e.pointerType === "mouse") mouse.inside = false; });
+
+  // ================= Her (pond ripples) =================
+  const ART = ["\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2818\u28a6\u2840\u2800\u2808\u28a6\u2840\u2800\u2800\u2800\u28bf\u2800\u2800\u2838\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u28a7\u2840\u2800\u2808\u28b7\u2844\u2800\u2800\u28b8\u2847\u2800\u2800\u28b9\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2818\u28b7\u2840\u2800\u2800\u2831\u2844\u2800\u2808\u28ff\u2800\u2800\u2838\u28e7\u2884\u28c0\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28c0\u28c0\u28c0\u28c0\u28c0\u28c0\u28c0\u28e4\u28e4\u28f4\u28f6\u28f6\u28f6\u28f6\u28f6\u2876\u2826\u28e4\u28c4\u28c0\u28b3\u2840\u2800\u2800\u2819\u28c6\u2800\u28bb\u2800\u2800\u2840\u28b9\u285f\u2809\u2809\u28b7\u28e4\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28e0\u2834\u2896\u28eb\u28fd\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u2844\u2800\u2800\u2808\u2833\u28fe\u28f4\u280e\u28b1\u287e\u2801\u2800\u2800\u28a0\u28ec\u2809\u2819\u2832\u28e6\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28f4\u28be\u28ff\u28ff\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2844\u2800\u2800\u2800\u2800\u2808\u2880\u285e\u2801\u2800\u2800\u2880\u285f\u2801\u2800\u2800\u2800\u2808\u28f7\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28c0\u28f4\u28ef\u28f6\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u2800\u2800\u2800\u2880\u2874\u283b\u28e7\u2800\u2800\u28a0\u287e\u2800\u2800\u2800\u2880\u287c\u2803\u2838\u2846\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28e0\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28c7\u28c0\u2874\u280b\u2800\u2800\u285f\u2800\u2800\u287e\u2801\u2800\u2800\u28a0\u287e\u2833\u2806\u2800\u28bb\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28f4\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u283f\u281b\u281b\u2806\u2800\u2880\u28fc\u2847\u2800\u28b8\u28c7\u28c0\u2800\u2880\u285e\u281b\u2813\u2836\u2836\u280b\u28bb\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u284f\u2800\u2800\u2800\u2800\u2800\u28e0\u280b\u2838\u2847\u28b0\u28fe\u2800\u2808\u28c7\u28fe\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u28b1\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28fc\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28e7\u2800\u2800\u2800\u2810\u28fb\u28ff\u2833\u28e6\u2847\u28b0\u28ff\u2840\u2880\u28ff\u2803\u2846\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28bb\u28c6\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28e0\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u2844\u2800\u28a0\u284f\u28b8\u2800\u2800\u2819\u281b\u2839\u28f7\u280b\u2801\u2800\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u283b\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28f0\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28c6\u2800\u2800\u2818\u2803\u2800\u2800\u2800\u2800\u2808\u2833\u28c4\u2800\u2887\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u283b\u28c4\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u28f0\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2846\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2833\u28fe\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2819\u281b\u2833\u2826\u28e4\u28c0\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u28b0\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u284f\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f6\u28e4\u28c0\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2818\u28a7\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2809\u281b\u2833\u2826\u2824\u28c4\u28c0\u2840\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2880\u284f\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u2808\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28e6\u28c4\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2819\u28a6\u28c4\u28c0\u28c0\u28c0\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2809\u2809\u281b\u2837\u2826\u28a4\u28c4\u2840", "\u2800\u2800\u2800\u2800\u28f8\u28f7\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2800\u2880\u28fd\u28ff\u28ff\u2859\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u28e4\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2830\u2836\u2836\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808", "\u2800\u2800\u2800\u2800\u28ff\u28b8\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u280b\u2809\u2800\u2808\u281b\u28ff\u28ee\u287b\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u28f6\u28f6\u28e4\u28c4\u28c0\u2800\u2800\u2800\u2809\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u28ff\u28fc\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u280b\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2800\u2800\u2800\u2800\u2800\u2808\u2819\u28f7\u28dd\u28bb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u284f\u2809\u2819\u2813\u2836\u28a4\u28c4\u28c0\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u284f\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2847\u28ff\u2800\u28a0\u2864\u2824\u2824\u2824\u2824\u28ec\u28ff\u28f7\u28fd\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u2847\u2800\u2800\u2800\u2800\u2808\u2809\u281b\u2812\u28a4\u28e4\u28c0\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u285f\u2800\u2808\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28b7\u285f\u28e0\u281f\u2801\u2800\u28c0\u28e0\u28ed\u28ff\u28e7\u28ff\u28e9\u287f\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2809\u281b\u2836\u2826\u2884\u28c0\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u285f\u2800\u2800\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28fe\u2837\u2803\u2880\u28e4\u28ff\u28ff\u28ff\u28cb\u28fd\u28db\u28ff\u2849\u2819\u281b\u28bb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2819\u2833\u2826\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u28bd\u28ff\u28b9\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u287f\u2832\u2836\u28e4\u28f6\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28bf\u284f\u2800\u2880\u28ff\u280f\u28bb\u28c7\u2839\u281f\u28c3\u2800\u28f8\u28ff\u2844\u2820\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2819\u28ff\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2802\u2884", "\u2800\u2800\u2800\u2800\u28b8\u28ff\u28b8\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u285f\u2800\u2800\u2800\u2800\u2800\u28fb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287e\u2800\u2800\u2809\u2800\u2820\u283e\u281b\u281b\u283b\u281b\u2809\u2809\u2809\u2801\u2880\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2800\u2838\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2838\u28ff\u285c\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u283e\u28bf\u28ff\u283f\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u2800\u2800\u2800\u28f8\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2800\u2800\u28ff\u28ff\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u28ff\u28c7\u28bb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u280b\u28b8\u28ff\u2800\u2818\u28ff\u2801\u28d8\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2846\u2800\u28ff\u28ff\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u28bb\u28ff\u28fc\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u284f\u2800\u2808\u28bb\u28e6\u28e4\u2874\u281e\u280b\u28bb\u28ff\u28ff\u28ff\u28ff\u287f\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u2800\u28ff\u28ff\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u28b8\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28e7\u28a4\u28fc\u283f\u281f\u280b\u2800\u2800\u2800\u28fe\u28ff\u28ff\u28ff\u287f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u2847\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u285f\u28ff\u28e4\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2838\u28f7\u281a\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28a0\u28ff\u28ff\u28ff\u28ff\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b0\u28ff\u2801\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2800\u28ff\u287f\u28fc\u2807\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u28bf\u2844\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b8\u28ff\u28ff\u28ff\u284f\u2800\u2800\u2800\u2800\u2808\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u28ff\u28f6\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28fe\u284f\u28e0\u280f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b8\u28ff\u28ff\u28ff\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28c0\u28e0\u28e4\u28e4\u28f6\u28e4\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28c5\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u28ff\u28ff\u28bb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f7\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u28b8\u28ff\u28ff\u284f\u2800\u2800\u2800\u2880\u2874\u2896\u28db\u28ed\u28fd\u28ff\u28ff\u28ff\u28f6\u28ff\u28f7\u2800\u2800\u2800\u2800\u2800\u2800\u28bb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28f9\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2818\u28ff\u28fc\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28c6\u2800\u2800\u2800\u2800\u2800\u28b8\u28ff\u28ff\u2847\u2800\u2800\u2800\u28b8\u28e7\u28ff\u28ff\u28ff\u28ff\u287f\u281f\u281b\u281b\u28bf\u28ff\u2843\u2800\u2800\u2800\u2800\u2800\u28fc\u28ff\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2839\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2819\u28a7\u2840\u2800\u2800\u2800\u2800\u28ff\u28ff\u28c7\u2800\u2800\u2800\u2808\u28bf\u28ff\u280f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u2801\u2800\u2800\u2800\u2800\u28f0\u287f\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2839\u28ff\u28ff\u285f\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28e7\u286e\u28b7\u28c4\u2800\u2800\u2800\u28bb\u284c\u28ff\u2840\u2800\u2800\u2800\u2818\u28ff\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u2800\u2800\u2800\u2800\u28f4\u287f\u2881\u287e\u28fb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2818\u28ff\u28f7\u2858\u28bf\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28c6\u2800\u2819\u2837\u28c4\u2800\u2808\u28bf\u28fc\u28e7\u2800\u2800\u2800\u2800\u2808\u283b\u28c4\u2800\u2800\u2800\u2800\u2880\u287c\u2803\u2800\u2800\u2810\u281b\u280b\u28e0\u280f\u2800\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28cb\u281d\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b9\u28ff\u287f\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28e7\u2840\u2800\u2808\u281b\u28a6\u28c4\u2849\u2819\u28b7\u28c4\u2800\u2800\u2800\u2800\u2808\u2819\u281b\u281b\u280b\u2809\u2800\u2800\u2800\u2800\u2800\u28a0\u287e\u2803\u2800\u28f8\u28ff\u28ff\u28ff\u28e6\u2859\u283f\u28f7\u2840\u2800\u2800\u2800\u2800\u2880\u28c4\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2820\u280a", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28bf\u28ff\u2801\u2809\u28bb\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28e6\u28c0\u2800\u2880\u28fb\u28ff\u2877\u28a6\u28c8\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28f4\u280f\u2800\u2800\u28e0\u28ff\u28b9\u28ff\u28ff\u28ff\u28ff\u28f6\u28ff\u28ff\u28e4\u28e4\u28f4\u28fe\u281f\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u283b\u28e7\u2840\u2808\u281b\u28bf\u28ff\u28ff\u28bb\u28ff\u28ff\u28ff\u285d\u281b\u2833\u28f6\u28ff\u280f\u28f7\u2840\u2809\u281b\u2832\u2826\u28e4\u28c0\u2840\u2800\u2800\u2800\u2800\u2800\u28e0\u2874\u281f\u2801\u2800\u2800\u2800\u280b\u2801\u28f8\u28ff\u28ff\u28ff\u28ff\u28df\u285b\u281b\u281b\u281b\u280b\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28c0\u28e4\u2834\u2812\u281b\u280b\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2819\u28b7\u28c0\u2800\u28b8\u28bb\u287f\u2800\u2839\u28ff\u28ff\u283f\u28e6\u28c4\u2818\u280b\u2800\u2818\u28e7\u2800\u2800\u2800\u2800\u2800\u2809\u281b\u2813\u2812\u2812\u281a\u281b\u2809\u2800\u2800\u2800\u2880\u28e0\u28f4\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u283f\u28f6\u28e4\u28e4\u28e4\u28e4\u2844\u2800\u2800\u2800\u28e0\u2876\u281b\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u283b\u28ff\u28fe\u2807\u2800\u2800\u2808\u283b\u28f7\u28c4\u28c9\u2801\u2800\u2800\u28c0\u28f9\u28e6\u28c0\u28c0\u28c0\u28c0\u28c0\u28c0\u28c0\u28c0\u28c0\u28c0\u28e0\u28e4\u28e4\u28f6\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u28ff\u28ff\u2844\u2800\u2809\u2809\u2809\u2800\u2800\u2880\u28e0\u287e\u280b\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28a0\u28ff\u280f\u2800\u2800\u2800\u2800\u2800\u2800\u2809\u2809\u2801\u2800\u28b8\u280f\u28e9\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u287f\u281f\u28ff\u28bf\u28ff\u28fe\u28ff\u287f\u2800\u28c0\u28c0\u28c0\u28e0\u2874\u281f\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28e0\u28fe\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u28ff\u283f\u281b\u280b\u2801\u2800\u2800\u28ff\u2858\u28ff\u28ef\u2809\u2809\u2809\u2809\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u2840\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28e0\u28fe\u28ff\u285f\u28b9\u28c6\u28ff\u284f\u2809\u2809\u2809\u281b\u281b\u281b\u281b\u281b\u2809\u2809\u2809\u2809\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2801\u2818\u28ff\u28f7\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u287e\u2807\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b8\u28ff\u287f\u288f\u28e4\u28ff\u283f\u281f\u28ff\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u289a\u28ff\u28f7\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u287c\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28a0\u28fc\u28ff\u28ff\u28ff\u287f\u280b\u2808\u2800\u280b\u2800\u2800\u2800\u28c0\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b8\u2800\u2800\u2800\u2800\u2800\u2880\u28e0\u2834\u281a\u283b\u28ff\u28f7\u2844\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u287c\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u28e0\u2834\u2836\u281b\u2809\u2881\u28fe\u287f\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2819\u28a7\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28bc\u2800\u2800\u28c0\u2864\u2836\u281b\u2801\u2800\u2800\u2800\u2839\u28ff\u28ff\u28c6\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2878\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u28c0\u28c0\u28c0\u2864\u2824\u2836\u2896\u281b\u280b\u2801\u2800\u2800\u2800\u2800\u28a0\u28ff\u287f\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u28a7\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28ff\u283e\u280b\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b8\u28ff\u28ff\u28e6\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2878\u2803\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u2874", "\u2800\u2800\u2800\u2800\u2800\u2880\u28c0\u28e4\u2836\u283e\u281b\u280b\u2809\u2809\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2810\u2826\u2824\u28a4\u28c4\u28ff\u28ff\u28e7\u28e4\u28e4\u28e4\u2874\u2836\u283e\u2836\u2836\u28e4\u28c0\u2800\u2800\u28bb\u28c4\u2800\u2800\u2800\u2800\u28f4\u28ff\u2807\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28bb\u28ff\u28ff\u28f7\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28b8\u2807\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2858\u2800", "\u2800\u2800\u2880\u2874\u281e\u280b\u2801\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28ff\u28ff\u284f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u2819\u2833\u2836\u281b\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28bb\u28ff\u28ff\u28f7\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28ff\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28a0\u2803\u2800", "\u2800\u28f0\u285e\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u28a0\u28ff\u28ff\u284f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2808\u28ff\u28ff\u28ff\u28ff\u2844\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u287f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800", "\u28f0\u284f\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2880\u28a0\u28fe\u28ff\u28ff\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2898\u28ff\u28ff\u28ff\u28ff\u28c7\u2840\u2800\u2800\u2800\u2800\u2800\u2800\u2820\u2847\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2800\u2844\u2800\u2800\u2800"];
+  const BLANK = "\u2800";
+  const AR = ART.length, AC = ART[0].length;
+  const art = ART.map(l => Array.from(l));
+  const artWrap = document.getElementById("artWrap");
+  const artText = document.getElementById("artText");
+  const drops = [];
+  let lastDrop = -10, artFs = 10, cellW = 6, cellH = 10;
+
+  function measureArt() {
+    if (artWrap.hidden) return;
+    artText.style.fontSize = "20px";
+    artText.style.lineHeight = "1";
+    artText.textContent = "\u28FF".repeat(40);
+    const w20 = artText.getBoundingClientRect().width / 40;
+    const r = artWrap.getBoundingClientRect();
+    artFs = Math.max(4, Math.min((r.width - 16) / (AC * w20 / 20), (r.height - 16) / AR));
+    artText.style.fontSize = artFs + "px";
+    cellW = w20 / 20 * artFs; cellH = artFs;
+  }
+
+  function dropAt(x, y, t, power = 1) {
+    drops.push({ x, y, t, power });
+    if (drops.length > 10) drops.shift();
+    lastDrop = t;
+  }
+
+  const CRESTS = ["\u2802", "\u2812", "\u2836"]; // light to strong splash dots
+  function pond(t) {
+    if (t - lastDrop > 6) dropAt(AC * (0.2 + Math.random() * 0.6), AR * (0.25 + Math.random() * 0.6), t, 0.7);
+    while (drops.length && t - drops[0].t > 6) drops.shift();
+    const aspect = cellH / cellW;
+    let s = "";
+    for (let y = 0; y < AR; y++) {
+      for (let x = 0; x < AC; x++) {
+        let dx = 0, dy = 0, crest = 0;
+        for (const d of drops) {
+          const ox = x - d.x, oy = (y - d.y) * aspect;
+          const dist = Math.hypot(ox, oy) || 1;
+          const age = t - d.t;
+          const front = dist - age * 22;
+          const fade = Math.max(0, 1 - age / 6) * d.power;
+          const amp = Math.cos(front * 0.55) * Math.exp(-Math.abs(front) * 0.1) * fade;
+          dx += (ox / dist) * amp * 2.6;
+          dy += (oy / dist) * amp * 2.6 / aspect;
+          crest = Math.max(crest, amp);
+          if (age < 0.35 && dist < 4) crest = Math.max(crest, 1); // the splash itself
+        }
+        const sx = Math.round(x - dx), sy = Math.round(y - dy);
+        let c = sx >= 0 && sx < AC && sy >= 0 && sy < AR ? art[sy][sx] : BLANK;
+        if (c === BLANK && crest > 0.45) c = CRESTS[crest > 0.85 ? 2 : crest > 0.65 ? 1 : 0];
+        s += c;
+      }
+      s += "\n";
+    }
+    artText.textContent = s;
+  }
+
+  artWrap.addEventListener("pointerdown", e => {
+    const r = artText.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width * AC, y = (e.clientY - r.top) / r.height * AR;
+    dropAt(x, y, (performance.now() - t0) / 1000, 1);
+  });
+
+  // ================= Fireworks =================
+  const fwWrap = document.getElementById("fwWrap");
+  const fwCanvas = document.getElementById("fw");
+  const fctx = fwCanvas.getContext("2d");
+  const PAL = ["#ff8fc8", "#ff5c8a", "#c9a0ff", "#ffd27a", "#fff2f8", "#8fe3ff", "#3d2b35", "#ffcf8a"];
+  const RAMP = " .,:-=+*#%@";
+  let FC = 80, FR = 40, fCW = 8, fCH = 14, fFs = 14, fAspect = 1.7;
+  let heat = new Float32Array(1), hcol = new Uint8Array(1);
+  let skyline = [], rockets = [], sparks = [], nextLaunch = 0, lastFT = 0, finaleAt = 12;
+
+  function measureFw() {
+    if (fwWrap.hidden) return;
+    const r = fwWrap.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    fwCanvas.width = Math.max(1, Math.round(r.width * dpr));
+    fwCanvas.height = Math.max(1, Math.round(r.height * dpr));
+    fctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fFs = r.width < 500 ? 10 : 13;
+    fctx.font = `${fFs}px "JetBrains Mono", ui-monospace, monospace`;
+    fCW = fctx.measureText("M").width; fCH = fFs * 1.05;
+    fAspect = fCH / fCW;
+    FC = Math.max(20, Math.floor(r.width / fCW));
+    FR = Math.max(16, Math.floor(r.height / fCH));
+    heat = new Float32Array(FC * FR); hcol = new Uint8Array(FC * FR);
+    buildSkyline();
+  }
+
+  function buildSkyline() {
+    skyline = [];
+    let x = 0;
+    const maxH = Math.max(4, Math.floor(FR * 0.22));
+    while (x < FC) {
+      const w = 4 + Math.floor(Math.random() * 7);
+      const h = 2 + Math.floor(Math.random() * (maxH - 1));
+      const lit = [];
+      for (let i = 0; i < w * h; i++) lit.push(Math.random() < 0.35);
+      skyline.push({ x, w, h, lit, spire: Math.random() < 0.15 });
+      x += w + (Math.random() < 0.3 ? 1 : 0);
+    }
+  }
+
+  function stamp(x, y, I, c) {
+    const rx = Math.round(x), ry = Math.round(y);
+    if (rx < 0 || rx >= FC || ry < 0 || ry >= FR) return;
+    const i = rx + ry * FC;
+    if (I > heat[i]) { heat[i] = I; hcol[i] = c; }
+  }
+
+  function launch(x, ty) {
+    const y0 = FR - 1;
+    ty = Math.max(2, Math.min(FR * 0.6, ty));
+    const G = 22;
+    rockets.push({ x, y: y0, vx: (Math.random() - 0.5) * 3, vy: -Math.sqrt(2 * G * (y0 - ty)), G, color: Math.random() < 0.5 ? 3 : 4 });
+  }
+
+  function addSpark(x, y, ang, speed, o) {
+    sparks.push(Object.assign({
+      x, y, vx: Math.cos(ang) * speed * fAspect, vy: Math.sin(ang) * speed,
+      life: 0, max: 1.4 + Math.random() * 0.6, drag: 1.2, g: 9, color: 0, twinkle: false, split: false,
+    }, o));
+  }
+
+  const SHAPES = ["peony", "ring", "willow", "heart", "crossette", "glitter", "double"];
+  function explode(r) {
+    const type = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+    const c = [0, 1, 2, 4, 5, 0, 1][Math.floor(Math.random() * 7)];
+    const c2 = [0, 2, 3, 5][Math.floor(Math.random() * 4)];
+    const big = 0.8 + Math.random() * 0.5;
+    // flash at the burst point
+    for (let a = 0; a < 6.28; a += 0.5) stamp(r.x + Math.cos(a) * fAspect, r.y + Math.sin(a), 1, 4);
+    if (type === "peony" || type === "double") {
+      const n = 110;
+      for (let i = 0; i < n; i++) addSpark(r.x, r.y, Math.random() * Math.PI * 2, (6 + Math.random() * 9) * big, { color: c });
+      if (type === "double") for (let i = 0; i < 50; i++) addSpark(r.x, r.y, (i / 50) * Math.PI * 2, 5 * big, { color: c2, max: 1.2 });
+    } else if (type === "ring") {
+      const n = 64, tilt = Math.random() * 0.6 + 0.4;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2, s = 13 * big;
+        sparks.push({ x: r.x, y: r.y, vx: Math.cos(a) * s * fAspect, vy: Math.sin(a) * s * tilt, life: 0, max: 1.5, drag: 1.4, g: 6, color: c, twinkle: false, split: false });
+      }
+      for (let i = 0; i < 30; i++) addSpark(r.x, r.y, Math.random() * 6.28, Math.random() * 4, { color: 4, max: 0.9 });
+    } else if (type === "willow") {
+      for (let i = 0; i < 90; i++) addSpark(r.x, r.y, Math.random() * Math.PI * 2, (5 + Math.random() * 7) * big, { color: 3, max: 3 + Math.random(), drag: 2.4, g: 5, willow: true });
+    } else if (type === "heart") {
+      for (let i = 0; i < 90; i++) {
+        const t = (i / 90) * Math.PI * 2;
+        const hx = 16 * Math.sin(t) ** 3;
+        const hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+        const s = 0.85 * big;
+        sparks.push({ x: r.x, y: r.y, vx: hx * s * fAspect, vy: hy * s, life: 0, max: 1.8, drag: 2.2, g: 2.5, color: 1, twinkle: false, split: false });
+      }
+      for (let i = 0; i < 40; i++) addSpark(r.x, r.y, Math.random() * 6.28, Math.random() * 5, { color: 0, max: 1.2 });
+    } else if (type === "crossette") {
+      for (let i = 0; i < 14; i++) addSpark(r.x, r.y, (i / 14) * Math.PI * 2, 11 * big, { color: c, max: 0.8, split: true });
+    } else if (type === "glitter") {
+      for (let i = 0; i < 120; i++) addSpark(r.x, r.y, Math.random() * Math.PI * 2, (4 + Math.random() * 10) * big, { color: Math.random() < 0.5 ? 4 : 3, max: 2.2, twinkle: true, drag: 1.8 });
+    }
+  }
+
+  function fireworks(t) {
+    const dt = Math.min(0.05, Math.max(0, t - lastFT)); lastFT = t;
+    if (heat.length !== FC * FR) measureFw();
+
+    // automatic show, with a finale every so often
+    if (t > nextLaunch) {
+      launch(FC * (0.1 + Math.random() * 0.8), FR * (0.1 + Math.random() * 0.35));
+      nextLaunch = t + 0.5 + Math.random() * 1.1;
+    }
+    if (t > finaleAt) {
+      for (let i = 0; i < 6; i++) setTimeout(() => launch(FC * (0.1 + Math.random() * 0.8), FR * (0.08 + Math.random() * 0.3)), i * 140);
+      finaleAt = t + 20 + Math.random() * 10;
+    }
+
+    // decay the glow grid so trails fade through the character ramp
+    const k = Math.exp(-dt * 4.2);
+    for (let i = 0; i < heat.length; i++) heat[i] *= k;
+
+    // rockets
+    for (const r of rockets) {
+      r.vy += r.G * dt; r.x += r.vx * dt; r.y += r.vy * dt;
+      stamp(r.x, r.y, 1, r.color);
+      if (Math.random() < 0.6) sparks.push({ x: r.x, y: r.y + 0.5, vx: (Math.random() - 0.5) * 4, vy: 2 + Math.random() * 3, life: 0, max: 0.35, drag: 2, g: 4, color: 3, twinkle: false, split: false });
+      if (r.vy >= -1) { r.dead = true; explode(r); }
+    }
+    rockets = rockets.filter(r => !r.dead);
+
+    // sparks
+    const born = [];
+    for (const p of sparks) {
+      p.life += dt;
+      const dr = Math.exp(-p.drag * dt);
+      p.vx *= dr; p.vy = p.vy * dr + p.g * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const f = 1 - p.life / p.max;
+      if (f <= 0) { p.dead = true; continue; }
+      if (p.split && p.life > p.max * 0.6) {
+        p.dead = true;
+        const a0 = Math.random() * Math.PI;
+        for (let i = 0; i < 4; i++) born.push({ x: p.x, y: p.y, vx: Math.cos(a0 + i * Math.PI / 2) * 6 * fAspect, vy: Math.sin(a0 + i * Math.PI / 2) * 6, life: 0, max: 0.8, drag: 1.5, g: 6, color: 4, twinkle: false, split: false });
+        continue;
+      }
+      let I = Math.pow(f, 0.6);
+      if (p.twinkle) I *= Math.random() < 0.35 ? 1 : 0.15;
+      if (p.willow) I = Math.min(1, I * 1.1);
+      stamp(p.x, p.y, I, p.color);
+    }
+    sparks = sparks.filter(p => !p.dead && p.y < FR + 2).concat(born);
+    if (sparks.length > 4000) sparks.splice(0, sparks.length - 4000);
+
+    // draw
+    const W2 = fwCanvas.width / (window.devicePixelRatio || 1), H2 = fwCanvas.height / (window.devicePixelRatio || 1);
+    const g = fctx.createLinearGradient(0, 0, 0, H2);
+    g.addColorStop(0, "#0b0710"); g.addColorStop(1, "#1e1119");
+    fctx.fillStyle = g; fctx.fillRect(0, 0, W2, H2);
+    fctx.font = `${fFs}px "JetBrains Mono", ui-monospace, monospace`;
+    fctx.textBaseline = "top";
+
+    // faint stars
+    fctx.globalAlpha = 0.35; fctx.fillStyle = PAL[4];
+    for (let i = 0; i < FC * 0.6; i++) {
+      const sx = (i * 7919) % FC, sy = (i * 104729) % Math.floor(FR * 0.6);
+      if (Math.sin(t * 1.3 + i) > 0.2) fctx.fillText(i % 5 ? "." : "+", sx * fCW, sy * fCH);
+    }
+
+    // sparks and trails
+    let curC = -1;
+    for (let i = 0; i < heat.length; i++) {
+      const h = heat[i];
+      if (h < 0.04) continue;
+      if (hcol[i] !== curC) { curC = hcol[i]; fctx.fillStyle = PAL[curC]; }
+      fctx.globalAlpha = Math.min(1, 0.3 + h * 0.9);
+      fctx.fillText(RAMP[Math.min(RAMP.length - 1, Math.ceil(h * (RAMP.length - 1)))], (i % FC) * fCW, Math.floor(i / FC) * fCH);
+    }
+
+    // city skyline with flickering windows
+    fctx.globalAlpha = 1;
+    for (const b of skyline) {
+      const top = FR - b.h;
+      for (let yy = 0; yy < b.h; yy++) {
+        for (let xx = 0; xx < b.w; xx++) {
+          const X = (b.x + xx) * fCW, Y = (top + yy) * fCH;
+          let ch, col = PAL[6];
+          if (yy === 0) ch = xx === 0 ? "." : xx === b.w - 1 ? "." : "_";
+          else if (xx === 0 || xx === b.w - 1) ch = "|";
+          else if (yy % 2 === 1 && xx % 2 === 1) {
+            const on = b.lit[yy * b.w + xx] !== (Math.sin(t * 0.3 + b.x * 3.1 + xx * 7.7 + yy) > 0.97);
+            ch = on ? "o" : "."; if (on) col = PAL[7];
+          } else ch = " ";
+          if (ch !== " ") { fctx.fillStyle = col; fctx.globalAlpha = col === PAL[7] ? 0.8 : 1; fctx.fillText(ch, X, Y); }
+        }
+      }
+      if (b.spire && b.w > 4) {
+        fctx.fillStyle = PAL[6]; fctx.globalAlpha = 1;
+        const sx = (b.x + Math.floor(b.w / 2)) * fCW;
+        fctx.fillText("|", sx, (top - 1) * fCH); fctx.fillText("^", sx, (top - 2) * fCH);
+        if (Math.sin(t * 3) > 0) { fctx.fillStyle = PAL[1]; fctx.fillText("*", sx, (top - 3) * fCH); }
+      }
+    }
+    fctx.globalAlpha = 1;
+  }
+
+  fwWrap.addEventListener("pointerdown", e => {
+    const r = fwWrap.getBoundingClientRect();
+    const x = (e.clientX - r.left) / fCW, y = (e.clientY - r.top) / fCH;
+    launch(x, y);
+  });
+
+
+  // ================= Views + loop =================
+  function show(v) {
+    view = ["fireworks", "bunny", "her"].includes(v) ? v : "fireworks";
+    document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-pressed", b.dataset.view === view));
+    wrap.hidden = view !== "bunny";
+    artWrap.hidden = view !== "her";
+    fwWrap.hidden = view !== "fireworks";
+    try { history.replaceState(null, "", "#" + view); } catch (e) {}
+    measure(); measureArt(); measureFw();
+  }
+  document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.view)));
+
+  const t0 = performance.now();
+  function frame(now) {
+    const t = (now - t0) / 1000;
+    if (view === "fireworks") {
+      fireworks(t);
+    } else if (view === "bunny") {
+      const out = bunny(t);
+      let s = "";
+      for (let y = 0; y < rows; y++) s += out.slice(y * cols, y * cols + cols).join("") + "\n";
+      screen.textContent = s;
+    } else {
+      pond(t);
+    }
+    if (reduce) setTimeout(() => requestAnimationFrame(frame), 120); else requestAnimationFrame(frame);
+  }
+
+  new ResizeObserver(() => { measure(); measureArt(); measureFw(); }).observe(document.body);
+  document.fonts.ready.then(() => { measure(); measureArt(); measureFw(); });
+  show(location.hash.slice(1));
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
